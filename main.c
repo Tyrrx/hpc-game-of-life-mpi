@@ -29,9 +29,9 @@ int main(int argc, char *argv[])
     int periodic[] = {true};
     MPI_Cart_create(MPI_COMM_WORLD, 1, dims, periodic, false, &communicator);
 
-    
+
     // define the local gird sizes
-    struct Vec2i small = new_vec2i(25, 100);
+    struct Vec2i small = new_vec2i(25, 10);
 
     // calc the local grid size with ghosts
     struct Vec2i large = add(small, new_vec2i(2, 0));
@@ -99,7 +99,6 @@ int main(int argc, char *argv[])
     // create the kernel
     const struct Kernel2d kernel2d = create_kernel();
     const struct Kernel1d kernel = translate_kernel_1d(large, kernel2d);
-    freeKernel2d(kernel2d);
 
     // do the steps
     for (int step = 0; step < 100; ++step) {
@@ -171,11 +170,14 @@ int main(int argc, char *argv[])
 
     }
 
-//    MPI_Type_free(&left_ghost);
-//    MPI_Type_free(&left_inner);
-//    MPI_Type_free(&right_ghost);
-//    MPI_Type_free(&right_inner);
-//    free(field_buffer);
+    MPI_Type_free(&left_ghost);
+    MPI_Type_free(&left_inner);
+    MPI_Type_free(&right_ghost);
+    MPI_Type_free(&right_inner);
+    free(field_buffer);
+    free(field_buffer_swap);
+    freeKernel1d(kernel);
+    freeKernel2d(kernel2d);
     MPI_Finalize();
     return 0;
 }
