@@ -13,6 +13,7 @@ struct Vec2i {
 struct Vec2i new_vec2i(int x1, int x2);
 
 struct Vec2i multiply(struct Vec2i a, struct Vec2i b);
+struct Vec2i add(struct Vec2i a, struct Vec2i b);
 
 struct Vec2d {
     double x1;

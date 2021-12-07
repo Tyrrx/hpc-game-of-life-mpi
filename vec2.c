@@ -24,3 +24,11 @@ struct Vec2i multiply(struct Vec2i a, struct Vec2i b) {
     result.x2 = a.x2 * b.x2;
     return result;
 }
+
+struct Vec2i add(struct Vec2i a, struct Vec2i b)
+{
+    struct Vec2i result;
+    result.x1 = a.x1 + b.x1;
+    result.x2 = a.x2 + b.x2;
+    return result;
+}
