@@ -14,6 +14,44 @@ void printGrid(int rank, struct Vec2i *grid_size, const int *field_buffer);
 
 void initGrid(int rank, struct Vec2i grid_size, int *field_buffer);
 
+void writeVTK2(const long time_step, const int *data, const char prefix[1024], int rank, struct Vec2i origin,
+               struct Vec2i small_size, struct Vec2i large_size)
+{
+    char filename[2048];
+
+
+    const int offsetX = origin.x1;
+    const int offsetY = origin.x2;
+    const float delta_x = 1.0;
+    const long nxy = small_size.x1 * small_size.x2 * sizeof(float);
+
+    snprintf(filename, sizeof(filename), "%s-%d-%05ld%s", prefix, rank, time_step, ".vti");
+    FILE *fp = fopen(filename, "w");
+
+    fprintf(fp, "<?xml version=\"1.0\"?>\n");
+    fprintf(fp, "<VTKFile type=\"ImageData\" version=\"0.1\" byte_order=\"LittleEndian\" header_type=\"UInt64\">\n");
+    fprintf(fp, "<ImageData WholeExtent=\"%d %d %d %d %d %d\" Origin=\"0 0 0\" Spacing=\"%le %le %le\">\n", offsetX,
+            offsetX + small_size.x1, offsetY, offsetY + small_size.x2, 0, 0, delta_x, delta_x, 0.0);
+    fprintf(fp, "<CellData Scalars=\"%s\">\n", prefix);
+    fprintf(fp, "<DataArray type=\"Float32\" Name=\"%s\" format=\"appended\" offset=\"0\"/>\n", prefix);
+    fprintf(fp, "</CellData>\n");
+    fprintf(fp, "</ImageData>\n");
+    fprintf(fp, "<AppendedData encoding=\"raw\">\n");
+    fprintf(fp, "_");
+    fwrite((unsigned char *) &nxy, sizeof(long), 1, fp);
+
+    for (int y = 0; y < small_size.x2; y++) {
+        for (int x = 0; x < small_size.x1; x++) {
+            float value = (float) data[calcIndex(large_size.x1, x + 1, y)];
+            fwrite((unsigned char *) &value, sizeof(float), 1, fp);
+        }
+    }
+
+    fprintf(fp, "\n</AppendedData>\n");
+    fprintf(fp, "</VTKFile>\n");
+    fclose(fp);
+}
+
 int main(int argc, char *argv[])
 {
     // init mpi and get rank and size
@@ -31,7 +69,7 @@ int main(int argc, char *argv[])
 
 
     // define the local gird sizes
-    struct Vec2i small = new_vec2i(25, 10);
+    struct Vec2i small = new_vec2i(25, 25);
 
     // calc the local grid size with ghosts
     struct Vec2i large = add(small, new_vec2i(2, 0));
@@ -100,8 +138,16 @@ int main(int argc, char *argv[])
     const struct Kernel2d kernel2d = create_kernel();
     const struct Kernel1d kernel = translate_kernel_1d(large, kernel2d);
 
+    if(rank == 0) {
+        field_buffer[large.x1 + 3] = 1;
+        field_buffer[large.x1 * 2 + 3] = 1;
+        field_buffer[large.x1 * 3 + 3] = 1;
+        field_buffer[large.x1 * 3 + 2] = 1;
+        field_buffer[large.x1 * 2 + 1] = 1;
+    }
+
     // do the steps
-    for (int step = 0; step < 100; ++step) {
+    for (int step = 0; step < 200; ++step) {
         // define buffers that track the changes (spawn/die)
         int local_changes = 0;
         int global_changes = 0;
@@ -109,6 +155,15 @@ int main(int argc, char *argv[])
         // send the layers
         // todo async send and iterate over inner fields then wait for all completed and iterate over the ghost for better communication hiding
         // todo use ISend and IRecv
+
+        // get coords in topology
+        int coords[1];
+        MPI_Cart_coords(communicator, rank, 1, coords);
+        // calculate the absolute position inside the grid
+        struct Vec2i absolute_origin = multiply(small, new_vec2i(coords[0], 0));
+        writeVTK2(step, field_buffer, "golmpi", rank, absolute_origin, small, large);
+
+        // exchange ghost layers
         MPI_Neighbor_alltoallw(field_buffer, send_counts, send_dsp, send_types, field_buffer, rec_counts, rec_dsp,
                                rec_types, communicator);
 
@@ -161,6 +216,7 @@ int main(int argc, char *argv[])
 
         // distribute local changes to all ranks and exit if none
         // todo works as a barrier?
+        MPI_Barrier(communicator);
         MPI_Allreduce(&local_changes, &global_changes, 1, MPI_INT, MPI_SUM, communicator);
         if (global_changes == 0) {
             printf("Rank:%d Step:%d exited with no changes\n", rank, step);
@@ -170,14 +226,14 @@ int main(int argc, char *argv[])
 
     }
 
-    MPI_Type_free(&left_ghost);
-    MPI_Type_free(&left_inner);
-    MPI_Type_free(&right_ghost);
-    MPI_Type_free(&right_inner);
-    free(field_buffer);
-    free(field_buffer_swap);
-    freeKernel1d(kernel);
-    freeKernel2d(kernel2d);
+//    MPI_Type_free(&left_ghost);
+//    MPI_Type_free(&left_inner);
+//    MPI_Type_free(&right_ghost);
+//    MPI_Type_free(&right_inner);
+//    free(field_buffer);
+//    free(field_buffer_swap);
+//    freeKernel1d(kernel);
+//    freeKernel2d(kernel2d);
     MPI_Finalize();
     return 0;
 }
