@@ -4,6 +4,8 @@
 
 #include "vtk.h"
 
+#define calcIndex(width, x, y)  ((y)*(width) + (x))
+
 void writeSingleFile(const int *field_buffer, int rank, MPI_Comm comm, int timestep, struct Vec2i nxy, struct Vec2i Nxy,
                      struct Vec2i origin, struct Vec2i field_size, char prefix[10])
 {
@@ -13,23 +15,23 @@ void writeSingleFile(const int *field_buffer, int rank, MPI_Comm comm, int times
 
     snprintf(filename, sizeof(filename), "%s-%05d.vti", prefix, timestep);
 
-    char buffer[2048];
+    char buffer[4096];
     int headerLength = 0;
     headerLength += snprintf(buffer + headerLength, 50, "<?xml version=\"1.0\"?>\n");
-    headerLength += snprintf(buffer + headerLength, 512,
+    headerLength += snprintf(buffer + headerLength, 1024,
                              "<VTKFile type=\"ImageData\" version=\"0.1\" byte_order=\"LittleEndian\" header_type=\"UInt64\">\n");
-    headerLength += snprintf(buffer + headerLength, 512,
+    headerLength += snprintf(buffer + headerLength, 1024,
                              "<ImageData WholeExtent=\"%d %d %d %d %d %d\" Origin=\"0 0 0\" Spacing=\"%le %le %le\">\n",
                              0,
                              field_size.x1, 0, field_size.x2, 0, 0, deltax, deltax, 0.0);
     headerLength += snprintf(buffer + headerLength, 512, "<CellData Scalars=\"%s\">\n", prefix);
 
     headerLength += snprintf(buffer + headerLength, 512,
-                             "<DataArray type=\"UInt64\" Name=\"%s\" format=\"appended\" offset=\"0\"/>\n", prefix);
-    headerLength += snprintf(buffer + headerLength, 30, "</CellData>\n");
-    headerLength += snprintf(buffer + headerLength, 30, "</ImageData>\n");
-    headerLength += snprintf(buffer + headerLength, 60, "<AppendedData encoding=\"raw\">\n");
-    headerLength += snprintf(buffer + headerLength, 2, "_");
+                             "<DataArray type=\"Int32\" Name=\"%s\" format=\"appended\" offset=\"0\"/>\n", prefix);
+    headerLength += snprintf(buffer + headerLength, 40, "</CellData>\n");
+    headerLength += snprintf(buffer + headerLength, 40, "</ImageData>\n");
+    headerLength += snprintf(buffer + headerLength, 80, "<AppendedData encoding=\"raw\">\n");
+    headerLength += snprintf(buffer + headerLength, 4, "_");
 
     MPI_File file;
     MPI_File_open(comm, filename, MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &file);
@@ -37,8 +39,8 @@ void writeSingleFile(const int *field_buffer, int rank, MPI_Comm comm, int times
     long n_nxy = field_size.x1 * field_size.x2 * sizeof(int);
 
     if (rank == 0) {
-        MPI_File_write_at(file, 0, buffer, (int) (headerLength), MPI_CHAR, MPI_STATUS_IGNORE);
-        MPI_File_write_at(file, headerLength, (unsigned char *) &n_nxy, sizeof(long), MPI_CHAR, MPI_STATUS_IGNORE);
+        MPI_File_write_at(file, 0, buffer, headerLength, MPI_CHAR, MPI_STATUS_IGNORE);
+        MPI_File_write_at(file, headerLength, &n_nxy, sizeof(long), MPI_CHAR, MPI_STATUS_IGNORE);
     }
 
     headerLength += sizeof(long);
@@ -70,5 +72,43 @@ void writeSingleFile(const int *field_buffer, int rank, MPI_Comm comm, int times
         MPI_File_write_at(file, headerLength + n_nxy, buf, l, MPI_CHAR, MPI_STATUS_IGNORE);
     }
     MPI_File_close(&file);
+}
+
+void writeVTK2(const long time_step, const int *data, const char prefix[1024], int rank, struct Vec2i origin,
+               struct Vec2i small_size, struct Vec2i large_size)
+{
+    char filename[2048];
+
+
+    const int offsetX = origin.x1;
+    const int offsetY = origin.x2;
+    const float delta_x = 1.0;
+    const long nxy = small_size.x1 * small_size.x2 * sizeof(float);
+
+    snprintf(filename, sizeof(filename), "%s-%d-%05ld%s", prefix, rank, time_step, ".vti");
+    FILE *fp = fopen(filename, "w");
+
+    fprintf(fp, "<?xml version=\"1.0\"?>\n");
+    fprintf(fp, "<VTKFile type=\"ImageData\" version=\"0.1\" byte_order=\"LittleEndian\" header_type=\"UInt64\">\n");
+    fprintf(fp, "<ImageData WholeExtent=\"%d %d %d %d %d %d\" Origin=\"0 0 0\" Spacing=\"%le %le %le\">\n", offsetX,
+            offsetX + small_size.x1, offsetY, offsetY + small_size.x2, 0, 0, delta_x, delta_x, 0.0);
+    fprintf(fp, "<CellData Scalars=\"%s\">\n", prefix);
+    fprintf(fp, "<DataArray type=\"Float32\" Name=\"%s\" format=\"appended\" offset=\"0\"/>\n", prefix);
+    fprintf(fp, "</CellData>\n");
+    fprintf(fp, "</ImageData>\n");
+    fprintf(fp, "<AppendedData encoding=\"raw\">\n");
+    fprintf(fp, "_");
+    fwrite((unsigned char *) &nxy, sizeof(long), 1, fp);
+
+    for (int y = 0; y < small_size.x2; y++) {
+        for (int x = 0; x < small_size.x1; x++) {
+            float value = (float) data[calcIndex(large_size.x1, x + 1, y + 1)];
+            fwrite((unsigned char *) &value, sizeof(float), 1, fp);
+        }
+    }
+
+    fprintf(fp, "\n</AppendedData>\n");
+    fprintf(fp, "</VTKFile>\n");
+    fclose(fp);
 }
 
