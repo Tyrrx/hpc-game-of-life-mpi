@@ -6,8 +6,7 @@
 
 #define calcIndex(width, x, y)  ((y)*(width) + (x))
 
-void writeSingleFile(const int *field_buffer, int rank, MPI_Comm comm, int timestep, struct Vec2i nxy, struct Vec2i Nxy,
-                     struct Vec2i origin, struct Vec2i field_size, char prefix[10])
+void writeSingleFile(const int *field_buffer, int rank, MPI_Comm comm, int timestep, struct Vec2i field_size, char prefix[10], MPI_Datatype full_field_filetype, MPI_Datatype local_field_filetype)
 {
     char filename[2024];
 
@@ -45,24 +44,6 @@ void writeSingleFile(const int *field_buffer, int rank, MPI_Comm comm, int times
 
     headerLength += sizeof(long);
 
-    int nxy_sizes[] = {nxy.x1, nxy.x2};
-    int Nxy_sizes[] = {Nxy.x1, Nxy.x2};
-    int field_sizes[] = {field_size.x1, field_size.x2};
-    int start_field[] = {origin.x1, origin.x2};
-
-    MPI_Datatype full_field_filetype;
-    {
-        MPI_Type_create_subarray(2, field_sizes, nxy_sizes, start_field, MPI_ORDER_FORTRAN, MPI_INT, &full_field_filetype);
-        MPI_Type_commit(&full_field_filetype);
-    }
-
-    MPI_Datatype local_field_filetype;
-    {
-        int start_indices[2] = {1, 1};
-        MPI_Type_create_subarray(2, Nxy_sizes, nxy_sizes, start_indices, MPI_ORDER_FORTRAN, MPI_INT, &local_field_filetype);
-        MPI_Type_commit(&local_field_filetype);
-    }
-
     MPI_File_set_view(file, headerLength, MPI_INT, full_field_filetype, "native", MPI_INFO_NULL);
     MPI_File_write_all(file, field_buffer, 1, local_field_filetype, MPI_STATUS_IGNORE);
 
@@ -74,8 +55,8 @@ void writeSingleFile(const int *field_buffer, int rank, MPI_Comm comm, int times
     MPI_File_close(&file);
 }
 
-void writeVTK2(const long time_step, const int *data, const char prefix[1024], int rank, struct Vec2i origin,
-               struct Vec2i small_size, struct Vec2i large_size)
+void writeMultipleFiles(long time_step, const int *data, const char prefix[1024], int rank, struct Vec2i origin,
+                        struct Vec2i small_size, struct Vec2i large_size)
 {
     char filename[2048];
 

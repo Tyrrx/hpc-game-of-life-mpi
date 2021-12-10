@@ -2,8 +2,6 @@
 
 #include <mpi.h>
 #include <stdbool.h>
-#include <stdio.h>
-#include <string.h>
 #include <stdlib.h>
 #include "vec2.h"
 #include "kernel.h"
@@ -17,12 +15,12 @@ void printGrid(int rank, struct Vec2i grid_size, const int *field_buffer);
 void initGrid(int rank, struct Vec2i grid_size, int *field_buffer);
 
 
-int evolve(struct Vec2i *small, struct Vec2i *large, const int *field_buffer, int *field_buffer_swap,
+int evolve(struct Vec2i *nxy, struct Vec2i *Nxy, const int *field_buffer, int *field_buffer_swap,
            struct Kernel2d *kernel2D)
 {
     int local_changes;
-    for (int y = 1; y < (*small).x2 + 1; ++y) {
-        for (int x = 1; x < (*small).x1 + 1; ++x) {
+    for (int y = 1; y < (*nxy).x2 + 1; ++y) {
+        for (int x = 1; x < (*nxy).x1 + 1; ++x) {
 
             int surroundings = 0;
             for (int i = 0; i < (*kernel2D).num_elements; ++i) {
@@ -30,11 +28,11 @@ int evolve(struct Vec2i *small, struct Vec2i *large, const int *field_buffer, in
                 int xk = element.x1 + x;
                 int yk = element.x2 + y;
                 // todo optimize by pre calculation of the kernel offsets
-                if (field_buffer[calcIndex((*large).x1, xk, yk)] == 1) {
+                if (field_buffer[calcIndex((*Nxy).x1, xk, yk)] == 1) {
                     surroundings++;
                 }
             }
-            long index = calcIndex((*large).x1, x, y);
+            long index = calcIndex((*Nxy).x1, x, y);
             field_buffer_swap[index] = field_buffer[index];
 
             int alive = field_buffer[index];
@@ -42,10 +40,6 @@ int evolve(struct Vec2i *small, struct Vec2i *large, const int *field_buffer, in
                 field_buffer_swap[index] = 1;
                 local_changes = 1;
             }
-            // do nothing?
-//                if (alive && (surroundings == 2 || surroundings == 3)) {
-//                    field_buffer_swap[index] = 1;
-//                }
             // ------------------------------------- die = changes
             if (alive && (surroundings == 0 || surroundings == 1 || surroundings > 3)) {
                 field_buffer_swap[index] = 0;
@@ -65,13 +59,15 @@ int main(int argc, char *argv[])
     MPI_Comm_size(MPI_COMM_WORLD, &size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-
+    // set default sizes
     struct Vec2i nxy = new_vec2i(25, 25);
     struct Vec2i pxy = new_vec2i(3, 3);
 
-    if (argc > 2) {
+    if (argc > 4) {
         nxy.x1 = atoi(argv[1]);
         nxy.x2 = atoi(argv[2]);
+        pxy.x1 = atoi(argv[3]);
+        pxy.x2 = atoi(argv[4]);
         // todo read px and py from input
     }
 
@@ -81,7 +77,7 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    // init the communicator for the grid
+    // -------------------------------- init the communicator for the grid
     MPI_Comm communicator;
     int n_dims = N_DIMS;
     int dims[N_DIMS] = {pxy.x1, pxy.x2};
@@ -89,9 +85,19 @@ int main(int argc, char *argv[])
     MPI_Cart_create(MPI_COMM_WORLD, n_dims, dims, periodic, false, &communicator);
 
 
-    struct Vec2i full_field_size = multiply(pxy, nxy);
-    struct Vec2i Nxy = add(nxy, new_vec2i(2, 2));
-    const int large_sizes[] = {Nxy.x1, Nxy.x2};
+    // -------------------------------- get coords in topology
+    int coords[n_dims];
+    MPI_Cart_coords(communicator, rank, n_dims, coords);
+    // calculate the absolute position inside the grid
+    const struct Vec2i process_origin = multiply(nxy, new_vec2i(coords[0], coords[1]));
+
+
+    const struct Vec2i full_field_size = multiply(pxy, nxy);
+    const struct Vec2i Nxy = add(nxy, new_vec2i(2, 2));
+
+    const int full_field_sizes[] = {full_field_size.x1, full_field_size.x2};
+    const int nxy_sizes[] = {nxy.x1, nxy.x2};
+    const int Nxy_sizes[] = {Nxy.x1, Nxy.x2};
 
     const int size_ghost_y[] = {1, Nxy.x2};
     const int size_ghost_x[] = {Nxy.x1, 1};
@@ -108,41 +114,51 @@ int main(int argc, char *argv[])
     const int start_top_ghost[] = {0, 0};
     const int start_bottom_ghost[] = {0, Nxy.x2 - 1};
 
+    const int start_full_field[] = {process_origin.x1, process_origin.x2};
+    const int start_field[2] = {1, 1};
 
     // define the layer types and commit them
     MPI_Datatype left_inner;
-    MPI_Type_create_subarray(2, large_sizes, size_ghost_y, start_left_inner, MPI_ORDER_FORTRAN, MPI_INT, &left_inner);
+    MPI_Type_create_subarray(2, Nxy_sizes, size_ghost_y, start_left_inner, MPI_ORDER_FORTRAN, MPI_INT, &left_inner);
     MPI_Type_commit(&left_inner);
 
     MPI_Datatype right_inner;
-    MPI_Type_create_subarray(2, large_sizes, size_ghost_y, start_right_inner, MPI_ORDER_FORTRAN, MPI_INT, &right_inner);
+    MPI_Type_create_subarray(2, Nxy_sizes, size_ghost_y, start_right_inner, MPI_ORDER_FORTRAN, MPI_INT, &right_inner);
     MPI_Type_commit(&right_inner);
 
     MPI_Datatype left_ghost;
-    MPI_Type_create_subarray(2, large_sizes, size_ghost_y, start_left_ghost, MPI_ORDER_FORTRAN, MPI_INT, &left_ghost);
+    MPI_Type_create_subarray(2, Nxy_sizes, size_ghost_y, start_left_ghost, MPI_ORDER_FORTRAN, MPI_INT, &left_ghost);
     MPI_Type_commit(&left_ghost);
 
     MPI_Datatype right_ghost;
-    MPI_Type_create_subarray(2, large_sizes, size_ghost_y, start_right_ghost, MPI_ORDER_FORTRAN, MPI_INT, &right_ghost);
+    MPI_Type_create_subarray(2, Nxy_sizes, size_ghost_y, start_right_ghost, MPI_ORDER_FORTRAN, MPI_INT, &right_ghost);
     MPI_Type_commit(&right_ghost);
 
     MPI_Datatype top_inner;
-    MPI_Type_create_subarray(2, large_sizes, size_ghost_x, start_top_inner, MPI_ORDER_FORTRAN, MPI_INT, &top_inner);
+    MPI_Type_create_subarray(2, Nxy_sizes, size_ghost_x, start_top_inner, MPI_ORDER_FORTRAN, MPI_INT, &top_inner);
     MPI_Type_commit(&top_inner);
 
     MPI_Datatype bottom_inner;
-    MPI_Type_create_subarray(2, large_sizes, size_ghost_x, start_bottom_inner, MPI_ORDER_FORTRAN, MPI_INT,
-                             &bottom_inner);
+    MPI_Type_create_subarray(2, Nxy_sizes, size_ghost_x, start_bottom_inner, MPI_ORDER_FORTRAN, MPI_INT, &bottom_inner);
     MPI_Type_commit(&bottom_inner);
 
     MPI_Datatype top_ghost;
-    MPI_Type_create_subarray(2, large_sizes, size_ghost_x, start_top_ghost, MPI_ORDER_FORTRAN, MPI_INT, &top_ghost);
+    MPI_Type_create_subarray(2, Nxy_sizes, size_ghost_x, start_top_ghost, MPI_ORDER_FORTRAN, MPI_INT, &top_ghost);
     MPI_Type_commit(&top_ghost);
 
     MPI_Datatype bottom_ghost;
-    MPI_Type_create_subarray(2, large_sizes, size_ghost_x, start_bottom_ghost, MPI_ORDER_FORTRAN, MPI_INT,
-                             &bottom_ghost);
+    MPI_Type_create_subarray(2, Nxy_sizes, size_ghost_x, start_bottom_ghost, MPI_ORDER_FORTRAN, MPI_INT, &bottom_ghost);
     MPI_Type_commit(&bottom_ghost);
+
+
+    MPI_Datatype full_field_filetype;
+    MPI_Type_create_subarray(2, full_field_sizes, nxy_sizes, start_full_field, MPI_ORDER_FORTRAN, MPI_INT,
+                             &full_field_filetype);
+    MPI_Type_commit(&full_field_filetype);
+
+    MPI_Datatype field_filetype;
+    MPI_Type_create_subarray(2, Nxy_sizes, nxy_sizes, start_field, MPI_ORDER_FORTRAN, MPI_INT, &field_filetype);
+    MPI_Type_commit(&field_filetype);
 
 
     // left right top bottom
@@ -160,16 +176,7 @@ int main(int argc, char *argv[])
     int *field_buffer = calloc(Nxy.x1 * Nxy.x2, sizeof(int));
     int *field_buffer_swap = calloc(Nxy.x1 * Nxy.x2, sizeof(int));
 
-
-    // get coords in topology
-    int coords[n_dims];
-    MPI_Cart_coords(communicator, rank, n_dims, coords);
-    // calculate the absolute position inside the grid
-    struct Vec2i absolute_origin = multiply(nxy, new_vec2i(coords[0], coords[1])); // todo 2d topology: 2 dims
-
-
     struct Kernel2d kernel2D = create_kernel();
-
 
     if (rank == 0) {
         field_buffer[Nxy.x1 * 2 + 4] = 1;
@@ -179,19 +186,16 @@ int main(int argc, char *argv[])
         field_buffer[Nxy.x1 * 3 + 2] = 1;
     }
 
-    //initGrid(rank, nxy, field_buffer);
-
-
     // -------------------------------------------------------------------- game loop
-    for (int step = 0; step < 10; ++step) {
+    for (int step = 0; step < 2000; ++step) {
         int local_changes = 0;
         int global_changes = 0;
 
-        //writeVTK2(step, field_buffer, "golmpi", rank, absolute_origin, nxy, Nxy);
-        writeSingleFile(field_buffer, rank, communicator, step, nxy, Nxy, absolute_origin, full_field_size, "golmpi");
+        //writeMultipleFiles(step, field_buffer, "golmpi", rank, process_origin, nxy, Nxy);
+        writeSingleFile(field_buffer, rank, communicator, step, full_field_size, "golmpi", full_field_filetype,
+                        field_filetype);
 
         // exchange ghost layers
-
         MPI_Request request[4 * n_dims];
         MPI_Status status[4 * n_dims];
         int positive, negative;
@@ -207,12 +211,7 @@ int main(int argc, char *argv[])
             MPI_Waitall(4, &request[4 * dim], &status[4 * dim]);
         }
 
-
-//        MPI_Neighbor_alltoallw(field_buffer, send_counts, send_dsp, send_types, field_buffer, rec_counts, rec_dsp,
-//                               rec_types, communicator);
-
         local_changes = evolve(&nxy, &Nxy, field_buffer, field_buffer_swap, &kernel2D);
-        //printGrid(rank, nxy, field_buffer);
 
         // swap buffers
         int *temp = field_buffer;
@@ -221,7 +220,7 @@ int main(int argc, char *argv[])
         MPI_Allreduce(&local_changes, &global_changes, 1, MPI_INT, MPI_SUM, communicator);
         if (global_changes == 0) {
             printf("Rank:%d Step:%d exited with no changes\n", rank, step);
-            //break;
+            break;
         }
     }
     // -------------------------------------------------------------------- end game loop
