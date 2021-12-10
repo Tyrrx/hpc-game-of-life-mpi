@@ -9,6 +9,7 @@
 #include "kernel.h"
 
 #define calcIndex(width, x, y)  ((y)*(width) + (x))
+#define N_DIMS 1
 
 void printGrid(int rank, struct Vec2i grid_size, const int *field_buffer);
 
@@ -104,7 +105,7 @@ int main(int argc, char *argv[])
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
 
-    struct Vec2i nxy = new_vec2i(250, 1000);
+    struct Vec2i nxy = new_vec2i(25, 100);
     struct Vec2i pxy = new_vec2i(size,1);                                           // todo read px and py from input
 
     if(argc > 2) {
@@ -121,9 +122,10 @@ int main(int argc, char *argv[])
 
     // init the communicator for the grid
     MPI_Comm communicator;
-    int dims[] = {pxy.x1};                                                              // todo 2d topology: { pxy.x1, pxy.x2 }
-    int periodic[] = {true};                                                            // todo 2d topology: {true, true}
-    MPI_Cart_create(MPI_COMM_WORLD, 1, dims, periodic, false, &communicator);     // todo 2d topology: 2 dims
+    int n_dims = N_DIMS;
+    int dims[N_DIMS] = {pxy.x1};                                                              // todo 2d topology: { pxy.x1, pxy.x2 }
+    int periodic[N_DIMS] = {true};                                                            // todo 2d topology: {true, true}
+    MPI_Cart_create(MPI_COMM_WORLD, n_dims, dims, periodic, false, &communicator);     // todo 2d topology: 2 dims
 
 
     struct Vec2i Nxy = add(nxy, new_vec2i(2, 0));
@@ -190,15 +192,31 @@ int main(int argc, char *argv[])
 
 
     // -------------------------------------------------------------------- game loop
-    for (int step = 0; step < 100; ++step) {
+    for (int step = 0; step < 300; ++step) {
         int local_changes = 0;
         int global_changes = 0;
 
         writeVTK2(step, field_buffer, "golmpi", rank, absolute_origin, nxy, Nxy);
 
         // exchange ghost layers
-        MPI_Neighbor_alltoallw(field_buffer, send_counts, send_dsp, send_types, field_buffer, rec_counts, rec_dsp,
-                               rec_types, communicator);
+
+        MPI_Request request[4*n_dims];
+        MPI_Status status[4*n_dims];
+        int positive, negative;
+        int req = 0;
+        for (int dim = 0, side = 0; dim < n_dims; ++dim) {
+            MPI_Cart_shift(communicator, dim, 1, &positive, &negative);
+            MPI_Isend(field_buffer, send_counts[side], send_types[side], positive, 0, communicator, &request[req++]);
+            MPI_Irecv(field_buffer, rec_counts[side], rec_types[side], positive, 0, communicator, &request[req++]);
+            ++side;
+            MPI_Isend(field_buffer, send_counts[side], send_types[side], negative, 0, communicator, &request[req++]);
+            MPI_Irecv(field_buffer, rec_counts[side], rec_types[side], negative, 0, communicator, &request[req++]);
+            ++side;
+        }
+        MPI_Waitall(req, request, status);
+
+//        MPI_Neighbor_alltoallw(field_buffer, send_counts, send_dsp, send_types, field_buffer, rec_counts, rec_dsp,
+//                               rec_types, communicator);
 
         local_changes = evolve(&nxy, &Nxy, field_buffer, field_buffer_swap, &kernel2D);
         //printGrid(rank, nxy, field_buffer);
