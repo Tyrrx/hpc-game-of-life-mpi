@@ -200,8 +200,8 @@ int main(int argc, char *argv[])
 
         // exchange ghost layers
 
-        MPI_Request request[4*n_dims];
-        MPI_Status status[4*n_dims];
+        MPI_Request request[4*n_dims], *req_p = request;
+        MPI_Status status[4*n_dims], *sta_p = status;
         int positive, negative;
         int req = 0;
         for (int dim = 0, side = 0; dim < n_dims; ++dim) {
@@ -212,8 +212,10 @@ int main(int argc, char *argv[])
             MPI_Isend(field_buffer, send_counts[side], send_types[side], negative, 0, communicator, &request[req++]);
             MPI_Irecv(field_buffer, rec_counts[side], rec_types[side], negative, 0, communicator, &request[req++]);
             ++side;
+            MPI_Waitall(req, req_p + dim * sizeof(MPI_Request), sta_p + dim * sizeof(MPI_Status));
+            req = 0;
         }
-        MPI_Waitall(req, request, status);
+
 
 //        MPI_Neighbor_alltoallw(field_buffer, send_counts, send_dsp, send_types, field_buffer, rec_counts, rec_dsp,
 //                               rec_types, communicator);
