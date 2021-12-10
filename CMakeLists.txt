@@ -3,7 +3,7 @@ project(hpc_game_of_life_mpi C)
 
 set(CMAKE_C_STANDARD 99)
 
-add_executable(hpc_game_of_life_mpi main.c 1dtopologie.c kernel.c kernel.h vec2.c vec2.h)
+add_executable(hpc_game_of_life_mpi main.c 1dtopologie.c kernel.c kernel.h vec2.c vec2.h vtk.c vtk.h)
 
 find_package(MPI REQUIRED)
 include_directories(SYSTEM ${MPI_INCLUDE_PATH})

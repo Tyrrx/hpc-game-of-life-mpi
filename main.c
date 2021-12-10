@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include "vec2.h"
 #include "kernel.h"
+#include "vtk.h"
 
 #define calcIndex(width, x, y)  ((y)*(width) + (x))
 #define N_DIMS 2
@@ -53,6 +54,48 @@ void writeVTK2(const long time_step, const int *data, const char prefix[1024], i
     fprintf(fp, "</VTKFile>\n");
     fclose(fp);
 }
+
+//void writeVTKWithMPIIO(const long time_step, const int *data, const char prefix[1024], MPI_Comm communicator, int rank,
+//                       struct Vec2i small_size, int size)
+//{
+//    char filename[2048];
+//    long header_size = 4096;
+//    long footer_size = 2048;
+//    char header[header_size], *put_header = header;
+//    char footer[footer_size], *put_footer = footer;
+//    const int offsetX = 0;
+//    const int offsetY = 0;
+//    const float delta_x = 1.0;
+//    const long nxy = (small_size.x1-1) * small_size.x2;
+//    snprintf(filename, sizeof(filename), "%s-%05ld%s", prefix, time_step, ".vti");
+//    MPI_File file;
+//    MPI_File_open(communicator, filename, MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &file);
+//
+////    const long disp_data = rank * nxy * sizeof(float) + header_size * sizeof(char);
+////    MPI_File_set_view(file, disp_data, MPI_FLOAT, MPI_FLOAT, "native", MPI_INFO_NULL);
+////    MPI_File_write(file, &data[small_size.x1+2], nxy, MPI_FLOAT, MPI_STATUS_IGNORE);
+//
+//    if (rank == 0) {
+//        put_header += sprintf(put_header, "<?xml version=\"1.0\"?>\n");
+//        put_header += sprintf(put_header, "<VTKFile type=\"ImageData\" version=\"0.1\" byte_order=\"LittleEndian\" header_type=\"UInt64\">\n");
+//        put_header += sprintf(put_header, "<ImageData WholeExtent=\"%d %d %d %d %d %d\" Origin=\"0 0 0\" Spacing=\"%le %le %le\">\n", offsetX,
+//                offsetX + small_size.x1, offsetY, offsetY + small_size.x2, 0, 0, delta_x, delta_x, 0.0);
+//        put_header += sprintf(put_header, "<CellData Scalars=\"%s\">\n", prefix);
+//        put_header += sprintf(put_header, "<DataArray type=\"Float32\" Name=\"%s\" format=\"appended\" offset=\"0\"/>\n", prefix);
+//        put_header += sprintf(put_header, "</CellData>\n");
+//        put_header += sprintf(put_header, "</ImageData>\n");
+//        put_header += sprintf(put_header, "<AppendedData encoding=\"raw\">\n");
+//        put_header += sprintf(put_header, "_");
+//        put_header += sprintf(put_header, "%lu", (size * nxy * sizeof(float)));
+//
+//        //MPI_File_set_view(file, 0, MPI_CHAR, MPI_CHAR, "native", MPI_INFO_NULL);
+//        MPI_File_write(file, header, header_size, MPI_CHAR, MPI_STATUS_IGNORE);
+//        const long disp_footer = size * nxy * sizeof(float) + header_size * sizeof(char);
+//        //MPI_File_set_view(file, disp_footer, MPI_CHAR, MPI_CHAR, "native", MPI_INFO_NULL);
+//        //MPI_File_write(file, footer, footer_size, MPI_CHAR, MPI_STATUS_IGNORE);
+//    }
+//    MPI_File_close(&file);
+//}
 
 int evolve(struct Vec2i *small, struct Vec2i *large, const int *field_buffer, int *field_buffer_swap,
            struct Kernel2d *kernel2D)
@@ -126,6 +169,7 @@ int main(int argc, char *argv[])
     MPI_Cart_create(MPI_COMM_WORLD, n_dims, dims, periodic, false, &communicator);
 
 
+    struct Vec2i full_field_size = multiply(pxy, nxy);
     struct Vec2i Nxy = add(nxy, new_vec2i(2, 2));
     const int large_sizes[] = {Nxy.x1, Nxy.x2};
 
@@ -219,11 +263,13 @@ int main(int argc, char *argv[])
 
 
     // -------------------------------------------------------------------- game loop
-    for (int step = 0; step < 2000; ++step) {
+    for (int step = 0; step < 10; ++step) {
         int local_changes = 0;
         int global_changes = 0;
 
-        writeVTK2(step, field_buffer, "golmpi", rank, absolute_origin, nxy, Nxy);
+        //writeVTK2(step, field_buffer, "golmpi", rank, absolute_origin, nxy, Nxy);
+        writeSingleFile(field_buffer, rank, communicator, step, nxy, Nxy, absolute_origin, full_field_size, "golmpi");
+        MPI_Barrier(communicator);
 
         // exchange ghost layers
 
