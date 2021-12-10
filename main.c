@@ -9,7 +9,7 @@
 #include "kernel.h"
 
 #define calcIndex(width, x, y)  ((y)*(width) + (x))
-#define N_DIMS 1
+#define N_DIMS 2
 
 void printGrid(int rank, struct Vec2i grid_size, const int *field_buffer);
 
@@ -44,7 +44,7 @@ void writeVTK2(const long time_step, const int *data, const char prefix[1024], i
 
     for (int y = 0; y < small_size.x2; y++) {
         for (int x = 0; x < small_size.x1; x++) {
-            float value = (float) data[calcIndex(large_size.x1, x + 1, y)];
+            float value = (float) data[calcIndex(large_size.x1, x + 1, y+1)];
             fwrite((unsigned char *) &value, sizeof(float), 1, fp);
         }
     }
@@ -58,7 +58,7 @@ int evolve(struct Vec2i *small, struct Vec2i *large, const int *field_buffer, in
            struct Kernel2d *kernel2D)
 {
     int local_changes;
-        for (int y = 0; y < (*small).x2; ++y) {                                           // todo 2d topology: y = 1 & (*small).x2 + 1
+    for (int y = 1; y < (*small).x2 + 1; ++y) {
         for (int x = 1; x < (*small).x1 + 1; ++x) {
 
             int surroundings = 0;
@@ -66,10 +66,8 @@ int evolve(struct Vec2i *small, struct Vec2i *large, const int *field_buffer, in
                 struct Vec2i element = (*kernel2D).elements[i];
                 int xk = element.x1 + x;
                 int yk = element.x2 + y;
-                if (yk < 0 || yk >= (*small).x2) {                                        // todo 2d topology: remove galois field check
-                    yk = (yk + (*small).x2) % (*small).x2;
-                }
-                if (field_buffer[calcIndex((*large).x1, xk, yk)] == 1) {            // todo optimize by pre calculation of the kernel offsets
+                // todo optimize by pre calculation of the kernel offsets
+                if (field_buffer[calcIndex((*large).x1, xk, yk)] ==1) {
                     surroundings++;
                 }
             }
@@ -105,17 +103,17 @@ int main(int argc, char *argv[])
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
 
-    struct Vec2i nxy = new_vec2i(25, 100);
-    struct Vec2i pxy = new_vec2i(size,1);                                           // todo read px and py from input
+    struct Vec2i nxy = new_vec2i(25, 25);
+    struct Vec2i pxy = new_vec2i(2, 2);
 
-    if(argc > 2) {
+    if (argc > 2) {
         nxy.x1 = atoi(argv[1]);
         nxy.x2 = atoi(argv[2]);
         // todo read px and py from input
     }
 
     // check if the given Px and Py parameters match the actual size
-    if(pxy.x1 * pxy.x2 != size) {
+    if (pxy.x1 * pxy.x2 != size) {
         printf("Size: %d does not match the given Px * Py: %d", size, pxy.x1 * pxy.x2);
         return 1;
     }
@@ -123,19 +121,29 @@ int main(int argc, char *argv[])
     // init the communicator for the grid
     MPI_Comm communicator;
     int n_dims = N_DIMS;
-    int dims[N_DIMS] = {pxy.x1};                                                              // todo 2d topology: { pxy.x1, pxy.x2 }
-    int periodic[N_DIMS] = {true};                                                            // todo 2d topology: {true, true}
-    MPI_Cart_create(MPI_COMM_WORLD, n_dims, dims, periodic, false, &communicator);     // todo 2d topology: 2 dims
+    int dims[N_DIMS] = {pxy.x1, pxy.x2};
+    int periodic[N_DIMS] = {true, true};
+    MPI_Cart_create(MPI_COMM_WORLD, n_dims, dims, periodic, false, &communicator);
 
 
-    struct Vec2i Nxy = add(nxy, new_vec2i(2, 0));
+    struct Vec2i Nxy = add(nxy, new_vec2i(2, 2));
     const int large_sizes[] = {Nxy.x1, Nxy.x2};
+
     const int size_ghost_y[] = {1, Nxy.x2};
+    const int size_ghost_x[] = {Nxy.x1, 1};
+
     const int start_left_inner[] = {1, 0};
-    const int start_right_inner[] = {nxy.x1, 0};
+    const int start_right_inner[] = {Nxy.x1 - 2, 0};
+
     const int start_left_ghost[] = {0, 0};
-    const int start_right_ghost[] = {nxy.x1 + 1, 0};
-    // todo 2d topology: add ghosts for top and bottom; update existing
+    const int start_right_ghost[] = {Nxy.x1 - 1, 0};
+
+    const int start_top_inner[] = {0, 1};
+    const int start_bottom_inner[] = {0, Nxy.x2 - 2};
+
+    const int start_top_ghost[] = {0, 0};
+    const int start_bottom_ghost[] = {0, Nxy.x2 - 1};
+
 
     // define the layer types and commit them
     MPI_Datatype left_inner;
@@ -154,17 +162,34 @@ int main(int argc, char *argv[])
     MPI_Type_create_subarray(2, large_sizes, size_ghost_y, start_right_ghost, MPI_ORDER_FORTRAN, MPI_INT, &right_ghost);
     MPI_Type_commit(&right_ghost);
 
-    // todo 2d topology: add subarrays for top and bottom
+    MPI_Datatype top_inner;
+    MPI_Type_create_subarray(2, large_sizes, size_ghost_x, start_top_inner, MPI_ORDER_FORTRAN, MPI_INT, &top_inner);
+    MPI_Type_commit(&top_inner);
+
+    MPI_Datatype bottom_inner;
+    MPI_Type_create_subarray(2, large_sizes, size_ghost_x, start_bottom_inner, MPI_ORDER_FORTRAN, MPI_INT,
+                             &bottom_inner);
+    MPI_Type_commit(&bottom_inner);
+
+    MPI_Datatype top_ghost;
+    MPI_Type_create_subarray(2, large_sizes, size_ghost_x, start_top_ghost, MPI_ORDER_FORTRAN, MPI_INT, &top_ghost);
+    MPI_Type_commit(&top_ghost);
+
+    MPI_Datatype bottom_ghost;
+    MPI_Type_create_subarray(2, large_sizes, size_ghost_x, start_bottom_ghost, MPI_ORDER_FORTRAN, MPI_INT,
+                             &bottom_ghost);
+    MPI_Type_commit(&bottom_ghost);
+
 
     // left right top bottom
-    const int send_counts[] = {1, 1};                               // todo 2d topology: {1,1,1,1} ...
-    const MPI_Aint send_dsp[] = {0, 0};
-    const int rec_counts[] = {1, 1};
-    const MPI_Aint rec_dsp[] = {0, 0};
+    const int send_counts[] = {1, 1, 1, 1};
+    const MPI_Aint send_dsp[] = {0, 0, 0, 0};
+    const int rec_counts[] = {1, 1, 1, 1};
+    const MPI_Aint rec_dsp[] = {0, 0, 0, 0};
 
     // group send types and receive types
-    MPI_Datatype send_types[] = {left_inner, right_inner};          // todo 2d topology: add top bottom
-    MPI_Datatype rec_types[] = {left_ghost, right_ghost};           // todo 2d topology: add top bottom
+    MPI_Datatype send_types[] = {left_inner, right_inner, top_inner, bottom_inner};
+    MPI_Datatype rec_types[] = {left_ghost, right_ghost, top_ghost, bottom_ghost};
 
 
     // init buffers
@@ -173,10 +198,10 @@ int main(int argc, char *argv[])
 
 
     // get coords in topology
-    int coords[1];                                                  // todo 2d topology: 2 dims
-    MPI_Cart_coords(communicator, rank, 1, coords);         // todo 2d topology: 2 dims
+    int coords[n_dims];
+    MPI_Cart_coords(communicator, rank, n_dims, coords);
     // calculate the absolute position inside the grid
-    struct Vec2i absolute_origin = multiply(nxy, new_vec2i(coords[0], 0)); // todo 2d topology: 2 dims
+    struct Vec2i absolute_origin = multiply(nxy, new_vec2i(coords[0], coords[1])); // todo 2d topology: 2 dims
 
 
     struct Kernel2d kernel2D = create_kernel();
@@ -200,8 +225,8 @@ int main(int argc, char *argv[])
 
         // exchange ghost layers
 
-        MPI_Request request[4*n_dims], *req_p = request;
-        MPI_Status status[4*n_dims], *sta_p = status;
+        MPI_Request request[4 * n_dims];
+        MPI_Status status[4 * n_dims];
         int positive, negative;
         int req = 0;
         for (int dim = 0, side = 0; dim < n_dims; ++dim) {
@@ -212,8 +237,7 @@ int main(int argc, char *argv[])
             MPI_Isend(field_buffer, send_counts[side], send_types[side], negative, 0, communicator, &request[req++]);
             MPI_Irecv(field_buffer, rec_counts[side], rec_types[side], negative, 0, communicator, &request[req++]);
             ++side;
-            MPI_Waitall(req, req_p + dim * sizeof(MPI_Request), sta_p + dim * sizeof(MPI_Status));
-            req = 0;
+            MPI_Waitall(4, &request[4 * dim], &status[4 * dim]);
         }
 
 
