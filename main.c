@@ -44,7 +44,7 @@ void writeVTK2(const long time_step, const int *data, const char prefix[1024], i
 
     for (int y = 0; y < small_size.x2; y++) {
         for (int x = 0; x < small_size.x1; x++) {
-            float value = (float) data[calcIndex(large_size.x1, x + 1, y+1)];
+            float value = (float) data[calcIndex(large_size.x1, x + 1, y + 1)];
             fwrite((unsigned char *) &value, sizeof(float), 1, fp);
         }
     }
@@ -67,7 +67,7 @@ int evolve(struct Vec2i *small, struct Vec2i *large, const int *field_buffer, in
                 int xk = element.x1 + x;
                 int yk = element.x2 + y;
                 // todo optimize by pre calculation of the kernel offsets
-                if (field_buffer[calcIndex((*large).x1, xk, yk)] ==1) {
+                if (field_buffer[calcIndex((*large).x1, xk, yk)] == 1) {
                     surroundings++;
                 }
             }
@@ -104,7 +104,7 @@ int main(int argc, char *argv[])
 
 
     struct Vec2i nxy = new_vec2i(25, 25);
-    struct Vec2i pxy = new_vec2i(2, 2);
+    struct Vec2i pxy = new_vec2i(3, 3);
 
     if (argc > 2) {
         nxy.x1 = atoi(argv[1]);
@@ -215,9 +215,11 @@ int main(int argc, char *argv[])
         field_buffer[Nxy.x1 * 3 + 2] = 1;
     }
 
+    //initGrid(rank, nxy, field_buffer);
+
 
     // -------------------------------------------------------------------- game loop
-    for (int step = 0; step < 300; ++step) {
+    for (int step = 0; step < 2000; ++step) {
         int local_changes = 0;
         int global_changes = 0;
 
@@ -265,11 +267,9 @@ int main(int argc, char *argv[])
 
 void initGrid(int rank, struct Vec2i grid_size, int *field_buffer)
 {
-    for (int y = 0; y < grid_size.x2; ++y) {
+    for (int y = 1; y < grid_size.x2 + 1; ++y) {
         for (int x = 1; x < grid_size.x1 + 1; ++x) {
-
             field_buffer[calcIndex(grid_size.x1 + 2, x, y)] = rank;
-
         }
     }
 }
@@ -278,7 +278,7 @@ void printGrid(int rank, struct Vec2i grid_size, const int *field_buffer)
 {
     char out[grid_size.x1 * grid_size.x2 + 2000], *put = out;
     put += sprintf(put, "R%d-----------------------------------------------\n", rank);
-    for (int y = 0; y < grid_size.x2; ++y) {
+    for (int y = 0; y < grid_size.x2 + 2; ++y) {
         for (int x = 0; x < grid_size.x1 + 2; ++x) {
             put += sprintf(put, "%d", field_buffer[calcIndex(grid_size.x1 + 2, x, y)]);
         }
