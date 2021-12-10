@@ -73,26 +73,28 @@ void init_mpi_data_types(struct Vec2i *nxy, const struct Vec2i *process_origin, 
     const int start_field[2] = {1, 1};
 
     // define the layer types and commit them
-    MPI_Type_create_subarray(2, Nxy_sizes, size_ghost_y, start_left_inner, MPI_ORDER_FORTRAN, MPI_INT, left_inner);
+    int order = MPI_ORDER_FORTRAN;
+    MPI_Datatype old_type = MPI_INT;
+    MPI_Type_create_subarray(2, Nxy_sizes, size_ghost_y, start_left_inner, order, old_type, left_inner);
     MPI_Type_commit(left_inner);
-    MPI_Type_create_subarray(2, Nxy_sizes, size_ghost_y, start_right_inner, MPI_ORDER_FORTRAN, MPI_INT, right_inner);
+    MPI_Type_create_subarray(2, Nxy_sizes, size_ghost_y, start_right_inner, order, old_type, right_inner);
     MPI_Type_commit(right_inner);
-    MPI_Type_create_subarray(2, Nxy_sizes, size_ghost_y, start_left_ghost, MPI_ORDER_FORTRAN, MPI_INT, left_ghost);
+    MPI_Type_create_subarray(2, Nxy_sizes, size_ghost_y, start_left_ghost, order, old_type, left_ghost);
     MPI_Type_commit(left_ghost);
-    MPI_Type_create_subarray(2, Nxy_sizes, size_ghost_y, start_right_ghost, MPI_ORDER_FORTRAN, MPI_INT, right_ghost);
+    MPI_Type_create_subarray(2, Nxy_sizes, size_ghost_y, start_right_ghost, order, old_type, right_ghost);
     MPI_Type_commit(right_ghost);
-    MPI_Type_create_subarray(2, Nxy_sizes, size_ghost_x, start_top_inner, MPI_ORDER_FORTRAN, MPI_INT, top_inner);
+    MPI_Type_create_subarray(2, Nxy_sizes, size_ghost_x, start_top_inner, order, old_type, top_inner);
     MPI_Type_commit(top_inner);
-    MPI_Type_create_subarray(2, Nxy_sizes, size_ghost_x, start_bottom_inner, MPI_ORDER_FORTRAN, MPI_INT, bottom_inner);
+    MPI_Type_create_subarray(2, Nxy_sizes, size_ghost_x, start_bottom_inner, order, old_type, bottom_inner);
     MPI_Type_commit(bottom_inner);
-    MPI_Type_create_subarray(2, Nxy_sizes, size_ghost_x, start_top_ghost, MPI_ORDER_FORTRAN, MPI_INT, top_ghost);
+    MPI_Type_create_subarray(2, Nxy_sizes, size_ghost_x, start_top_ghost, order, old_type, top_ghost);
     MPI_Type_commit(top_ghost);
-    MPI_Type_create_subarray(2, Nxy_sizes, size_ghost_x, start_bottom_ghost, MPI_ORDER_FORTRAN, MPI_INT, bottom_ghost);
+    MPI_Type_create_subarray(2, Nxy_sizes, size_ghost_x, start_bottom_ghost, order, old_type, bottom_ghost);
     MPI_Type_commit(bottom_ghost);
-    MPI_Type_create_subarray(2, full_field_sizes, nxy_sizes, start_full_field, MPI_ORDER_FORTRAN, MPI_INT,
+    MPI_Type_create_subarray(2, full_field_sizes, nxy_sizes, start_full_field, order, old_type,
                              full_field_filetype);
     MPI_Type_commit(full_field_filetype);
-    MPI_Type_create_subarray(2, Nxy_sizes, nxy_sizes, start_field, MPI_ORDER_FORTRAN, MPI_INT, field_filetype);
+    MPI_Type_create_subarray(2, Nxy_sizes, nxy_sizes, start_field, order, old_type, field_filetype);
     MPI_Type_commit(field_filetype);
 }
 
