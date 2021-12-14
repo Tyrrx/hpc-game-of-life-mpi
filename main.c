@@ -110,12 +110,14 @@ int main(int argc, char *argv[])
     // set default sizes
     struct Vec2i nxy = new_vec2i(25, 25);
     struct Vec2i pxy = new_vec2i(3, 3);
+    int time_steps = 0;
 
-    if (argc > 4) {
-        nxy.x1 = atoi(argv[1]);
-        nxy.x2 = atoi(argv[2]);
-        pxy.x1 = atoi(argv[3]);
-        pxy.x2 = atoi(argv[4]);
+    if (argc > 5) {
+        time_steps = atoi(argv[1]);
+        nxy.x1 = atoi(argv[2]);
+        nxy.x2 = atoi(argv[3]);
+        pxy.x1 = atoi(argv[4]);
+        pxy.x2 = atoi(argv[5]);
         // todo read px and py from input
     }
 
@@ -182,7 +184,7 @@ int main(int argc, char *argv[])
     }
 
     // -------------------------------- game loop
-    for (int step = 0; step < 2000; ++step) {
+    for (int step = 0; step < time_steps; ++step) {
         int local_changes = 0;
         int global_changes = 0;
 
@@ -205,6 +207,7 @@ int main(int argc, char *argv[])
             ++side;
             MPI_Waitall(4, &request[4 * dim], &status[4 * dim]);
         }
+
 
         // -------------------------------- evolve
         local_changes = evolve(&nxy, &Nxy, field_buffer, field_buffer_swap, &kernel2D);
